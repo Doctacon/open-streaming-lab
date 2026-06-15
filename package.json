@@ -1,0 +1,14 @@
+{
+  "name": "open-streaming-lab-mockingbird-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny Node helper that exposes Tinybird Mockingbird as JSONL for Open Streaming Lab.",
+  "scripts": {
+    "mockingbird:sample": "node tools/mockingbird-jsonl.mjs --template \"Web Analytics Starter Kit\" --eps 5 --limit 5",
+    "mockingbird:templates": "node tools/mockingbird-jsonl.mjs --list-templates"
+  },
+  "dependencies": {
+    "@tinybirdco/mockingbird": "2.0.0-rc.0"
+  }
+}

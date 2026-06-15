@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "open-streaming-lab"
+version = "0.1.0"
+description = "Local Apache Kafka lab using Python consumers/producers and Mockingbird-generated streaming data."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "confluent-kafka>=2.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+]
+
+[project.scripts]
+kafka-admin = "streaming_tutorial.admin:main"
+kafka-produce = "streaming_tutorial.producer:main"
+kafka-consume = "streaming_tutorial.consumer:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/streaming_tutorial"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["src"]
