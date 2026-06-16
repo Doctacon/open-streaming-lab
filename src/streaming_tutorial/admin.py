@@ -9,14 +9,14 @@ from collections.abc import Sequence
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.admin import AdminClient, NewTopic
 
-from streaming_tutorial.config import DEFAULT_TOPIC, defaults_from_env
+from streaming_tutorial.config import DEFAULT_DLQ_TOPIC, DEFAULT_PAGEVIEWS_TOPIC, DEFAULT_TOPIC, defaults_from_env
 
 
 def build_parser() -> argparse.ArgumentParser:
     defaults = defaults_from_env()
     parser = argparse.ArgumentParser(
         prog="kafka-admin",
-        description="Create and inspect local Kafka topics for the streaming tutorial.",
+        description="Create and inspect local Kafka topics for Open Streaming Lab.",
     )
     parser.add_argument(
         "--bootstrap-servers",
@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    create = subparsers.add_parser("create-topic", help="Create the tutorial topic if needed.")
+    create = subparsers.add_parser("create-topic", help="Create one topic if needed.")
     create.add_argument("--topic", default=defaults.topic, help=f"Topic name. Default: {DEFAULT_TOPIC}")
     create.add_argument("--partitions", type=int, default=3, help="Partition count. Default: 3")
     create.add_argument(
@@ -36,6 +36,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Replication factor. Use 1 for the single local broker. Default: 1",
     )
     create.add_argument("--timeout", type=float, default=15.0, help="Admin timeout in seconds.")
+
+    create_all = subparsers.add_parser(
+        "create-topics",
+        help="Create the main tutorial topic and its dead-letter topic if needed.",
+    )
+    create_all.add_argument("--topic", default=defaults.topic, help=f"Main topic name. Default: {DEFAULT_TOPIC}")
+    create_all.add_argument(
+        "--dlq-topic",
+        default=defaults.dlq_topic,
+        help=f"Dead-letter topic name. Default: {DEFAULT_DLQ_TOPIC}",
+    )
+    create_all.add_argument("--partitions", type=int, default=3, help="Main topic partition count. Default: 3")
+    create_all.add_argument(
+        "--dlq-partitions",
+        type=int,
+        default=1,
+        help="DLQ partition count. Default: 1",
+    )
+    create_all.add_argument(
+        "--replication-factor",
+        type=int,
+        default=1,
+        help="Replication factor. Use 1 for the single local broker. Default: 1",
+    )
+    create_all.add_argument("--timeout", type=float, default=15.0, help="Admin timeout in seconds.")
+
+    create_derived = subparsers.add_parser(
+        "create-derived-topics",
+        help="Create derived stream-processing output topics if needed.",
+    )
+    create_derived.add_argument(
+        "--pageviews-topic",
+        default=defaults.pageviews_topic,
+        help=f"Pageviews-by-URL derived topic name. Default: {DEFAULT_PAGEVIEWS_TOPIC}",
+    )
+    create_derived.add_argument("--partitions", type=int, default=3, help="Derived topic partition count. Default: 3")
+    create_derived.add_argument(
+        "--replication-factor",
+        type=int,
+        default=1,
+        help="Replication factor. Use 1 for the single local broker. Default: 1",
+    )
+    create_derived.add_argument("--timeout", type=float, default=15.0, help="Admin timeout in seconds.")
 
     describe = subparsers.add_parser("describe", help="Describe known topics.")
     describe.add_argument("--topic", default=defaults.topic, help=f"Topic name. Default: {DEFAULT_TOPIC}")
@@ -86,6 +129,35 @@ def create_topic(
     return 0
 
 
+def create_tutorial_topics(
+    *,
+    bootstrap_servers: str,
+    topic: str,
+    dlq_topic: str,
+    partitions: int,
+    dlq_partitions: int,
+    replication_factor: int,
+    timeout: float,
+) -> int:
+    """Create the main events topic and the dead-letter topic."""
+
+    main_result = create_topic(
+        bootstrap_servers=bootstrap_servers,
+        topic=topic,
+        partitions=partitions,
+        replication_factor=replication_factor,
+        timeout=timeout,
+    )
+    dlq_result = create_topic(
+        bootstrap_servers=bootstrap_servers,
+        topic=dlq_topic,
+        partitions=dlq_partitions,
+        replication_factor=replication_factor,
+        timeout=timeout,
+    )
+    return 0 if main_result == 0 and dlq_result == 0 else 1
+
+
 def describe_topic(*, bootstrap_servers: str, topic: str, timeout: float) -> int:
     admin = AdminClient({"bootstrap.servers": bootstrap_servers})
 
@@ -121,6 +193,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         return create_topic(
             bootstrap_servers=args.bootstrap_servers,
             topic=args.topic,
+            partitions=args.partitions,
+            replication_factor=args.replication_factor,
+            timeout=args.timeout,
+        )
+
+    if args.command == "create-topics":
+        return create_tutorial_topics(
+            bootstrap_servers=args.bootstrap_servers,
+            topic=args.topic,
+            dlq_topic=args.dlq_topic,
+            partitions=args.partitions,
+            dlq_partitions=args.dlq_partitions,
+            replication_factor=args.replication_factor,
+            timeout=args.timeout,
+        )
+
+    if args.command == "create-derived-topics":
+        return create_topic(
+            bootstrap_servers=args.bootstrap_servers,
+            topic=args.pageviews_topic,
             partitions=args.partitions,
             replication_factor=args.replication_factor,
             timeout=args.timeout,

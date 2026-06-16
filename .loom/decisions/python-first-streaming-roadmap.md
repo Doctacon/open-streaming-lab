@@ -45,4 +45,4 @@ Keep the project Python-first for Kafka application logic. Keep the existing Nod
 
 - `.loom/research/2026-06-15-next-level-streaming-roadmap.md`
 - `.loom/specs/next-level-streaming-platform.md`
-- `.loom/tickets/2026-06-15-next-level-streaming-platform.md`
+- `.loom/tickets/done/2026-06-15-next-level-streaming-platform.md`

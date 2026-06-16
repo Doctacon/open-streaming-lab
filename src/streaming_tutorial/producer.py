@@ -6,13 +6,24 @@ import argparse
 import json
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from confluent_kafka import KafkaException, Producer
 
-from streaming_tutorial.config import DEFAULT_TOPIC, defaults_from_env
+from streaming_tutorial.config import DEFAULT_DLQ_TOPIC, DEFAULT_TOPIC, defaults_from_env
+from streaming_tutorial.registry import fetch_schema
+from streaming_tutorial.validation import (
+    DEFAULT_SCHEMA_ID,
+    EventSchema,
+    EventValidationError,
+    build_dlq_envelope,
+    corrupt_event_for_demo,
+    load_event_schema,
+    validate_event,
+)
 
 KEY_CANDIDATES = (
     "user_id",
@@ -22,6 +33,34 @@ KEY_CANDIDATES = (
     "booking_id",
     "id",
 )
+
+DeliveryCallback = Callable[[KafkaException | None, Any], None]
+
+
+class KafkaProducerLike(Protocol):
+    def produce(
+        self,
+        topic: str,
+        *,
+        key: str | None = None,
+        value: bytes | None = None,
+        on_delivery: DeliveryCallback | None = None,
+    ) -> None: ...
+
+    def poll(self, timeout: float) -> int: ...
+
+    def flush(self, timeout: float | None = None) -> int: ...
+
+
+@dataclass(frozen=True)
+class RouteResult:
+    """Result of routing one generated event."""
+
+    topic: str
+    key: str | None
+    valid: bool
+    payload: dict[str, Any]
+    validation_error: str | None = None
 
 
 def project_root() -> Path:
@@ -33,8 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kafka-produce",
         description=(
-            "Run the Mockingbird JSONL helper and publish each generated event "
-            "to the local Kafka tutorial topic."
+            "Run the Mockingbird JSONL helper, validate generated events, and publish "
+            "valid records to the local Kafka topic or invalid records to the DLQ."
         ),
     )
     parser.add_argument(
@@ -43,6 +82,40 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Kafka bootstrap servers. Default: {defaults.bootstrap_servers}",
     )
     parser.add_argument("--topic", default=defaults.topic, help=f"Topic name. Default: {DEFAULT_TOPIC}")
+    parser.add_argument(
+        "--dlq-topic",
+        default=defaults.dlq_topic,
+        help=f"Dead-letter topic for schema failures. Default: {DEFAULT_DLQ_TOPIC}",
+    )
+    parser.add_argument(
+        "--schema",
+        default=DEFAULT_SCHEMA_ID,
+        help=(
+            f"JSON Schema id/artifact id. Default: {DEFAULT_SCHEMA_ID}. "
+            "Use 'none' only for exploratory non-Web-Analytics templates."
+        ),
+    )
+    parser.add_argument(
+        "--schema-source",
+        choices=("local", "registry", "none"),
+        default="local",
+        help="Load schema from local schemas/ files, Apicurio Registry, or disable validation. Default: local",
+    )
+    parser.add_argument(
+        "--registry-url",
+        default=defaults.registry_url,
+        help=f"Apicurio Registry URL used when --schema-source registry. Default: {defaults.registry_url}",
+    )
+    parser.add_argument(
+        "--registry-group",
+        default=defaults.registry_group,
+        help=f"Apicurio group id used when --schema-source registry. Default: {defaults.registry_group}",
+    )
+    parser.add_argument(
+        "--registry-version",
+        default=defaults.registry_version,
+        help=f"Apicurio artifact version used when --schema-source registry. Default: {defaults.registry_version}",
+    )
     parser.add_argument(
         "--template",
         default=defaults.template,
@@ -59,6 +132,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=defaults.limit,
         help=f"Number of events to produce. Use -1 to run until Ctrl-C. Default: {defaults.limit}",
+    )
+    parser.add_argument(
+        "--invalid-every",
+        type=int,
+        default=0,
+        help=(
+            "For DLQ demos, intentionally corrupt every Nth generated event before validation. "
+            "Use 0 to disable. Default: 0"
+        ),
     )
     parser.add_argument(
         "--client-id",
@@ -107,13 +189,116 @@ def choose_message_key(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _produce_with_backpressure(
+    producer: KafkaProducerLike,
+    *,
+    topic: str,
+    key: str | None,
+    payload: bytes,
+    on_delivery: DeliveryCallback,
+) -> None:
+    while True:
+        try:
+            producer.produce(topic, key=key, value=payload, on_delivery=on_delivery)
+            break
+        except BufferError:
+            producer.poll(0.5)
+
+
+def route_event(
+    producer: KafkaProducerLike,
+    event: dict[str, Any],
+    *,
+    event_number: int,
+    topic: str,
+    dlq_topic: str,
+    event_schema: EventSchema | None,
+    invalid_every: int,
+    on_delivery: DeliveryCallback,
+) -> RouteResult:
+    """Validate and publish one event to the main topic or DLQ."""
+
+    routed_event = corrupt_event_for_demo(event, event_number=event_number, invalid_every=invalid_every)
+    key = choose_message_key(routed_event)
+
+    if event_schema is not None:
+        try:
+            validate_event(routed_event, event_schema)
+        except EventValidationError as exc:
+            envelope = build_dlq_envelope(
+                original_event=routed_event,
+                target_topic=topic,
+                validation_error=exc,
+                event_schema=event_schema,
+            )
+            payload = json.dumps(envelope, separators=(",", ":"), default=str).encode("utf-8")
+            _produce_with_backpressure(
+                producer,
+                topic=dlq_topic,
+                key=key,
+                payload=payload,
+                on_delivery=on_delivery,
+            )
+            producer.poll(0)
+            return RouteResult(
+                topic=dlq_topic,
+                key=key,
+                valid=False,
+                payload=envelope,
+                validation_error=str(exc),
+            )
+
+    payload = json.dumps(routed_event, separators=(",", ":"), default=str).encode("utf-8")
+    _produce_with_backpressure(
+        producer,
+        topic=topic,
+        key=key,
+        payload=payload,
+        on_delivery=on_delivery,
+    )
+    producer.poll(0)
+    return RouteResult(topic=topic, key=key, valid=True, payload=routed_event)
+
+
+def _load_schema_argument(
+    schema_id: str,
+    *,
+    schema_source: str,
+    root: Path,
+    registry_url: str,
+    registry_group: str,
+    registry_version: str,
+) -> EventSchema | None:
+    if schema_id.lower() == "none" or schema_source == "none":
+        return None
+    if schema_source == "registry":
+        raw_schema = fetch_schema(
+            registry_url=registry_url,
+            group_id=registry_group,
+            artifact_id=schema_id,
+            version=registry_version,
+            timeout=10.0,
+        )
+        from streaming_tutorial.validation import build_event_schema
+
+        return build_event_schema(schema_id=schema_id, raw_schema=raw_schema)
+    return load_event_schema(schema_id, root=root)
+
+
 def produce_events(
     *,
     bootstrap_servers: str,
     topic: str,
+    dlq_topic: str,
+    schema_id: str,
+    schema_source: str,
+    registry_url: str,
+    registry_group: str,
+    registry_version: str,
     template: str,
     eps: float,
     limit: int,
+    invalid_every: int,
     client_id: str,
     root: Path | None = None,
 ) -> int:
@@ -123,9 +308,24 @@ def produce_events(
     if limit == 0 or limit < -1:
         print("--limit must be -1 or a positive integer", file=sys.stderr)
         return 2
+    if invalid_every < 0:
+        print("--invalid-every must be 0 or a positive integer", file=sys.stderr)
+        return 2
 
     root = root or project_root()
     generator_command = build_generator_command(root=root, template=template, eps=eps, limit=limit)
+    try:
+        event_schema = _load_schema_argument(
+            schema_id,
+            schema_source=schema_source,
+            root=root,
+            registry_url=registry_url,
+            registry_group=registry_group,
+            registry_version=registry_version,
+        )
+    except Exception as exc:
+        print(f"Could not load event schema {schema_id!r}: {exc}", file=sys.stderr)
+        return 2
 
     producer = Producer(
         {
@@ -150,6 +350,16 @@ def produce_events(
             f"offset={message.offset()} key={message.key()!r}"
         )
 
+    if event_schema is None:
+        print("Schema validation disabled for this run (--schema none).")
+    else:
+        print(
+            f"Using {schema_source} schema {event_schema.schema_id} "
+            f"({event_schema.name} v{event_schema.version}); DLQ topic={dlq_topic!r}"
+        )
+    if invalid_every:
+        print(f"DLQ demo enabled: every {invalid_every} event(s) will be intentionally corrupted.")
+
     print("Starting Mockingbird generator:", " ".join(generator_command))
     process = subprocess.Popen(
         generator_command,
@@ -160,7 +370,8 @@ def produce_events(
         bufsize=1,
     )
 
-    produced = 0
+    seen = 0
+    routed = {"main": 0, "dlq": 0}
     try:
         assert process.stdout is not None
         for line in process.stdout:
@@ -168,20 +379,31 @@ def produce_events(
             if not line:
                 continue
 
+            seen += 1
             event = parse_event_line(line)
-            key = choose_message_key(event)
-            payload = json.dumps(event, separators=(",", ":"), default=str).encode("utf-8")
+            result = route_event(
+                producer,
+                event,
+                event_number=seen,
+                topic=topic,
+                dlq_topic=dlq_topic,
+                event_schema=event_schema,
+                invalid_every=invalid_every,
+                on_delivery=on_delivery,
+            )
 
-            while True:
-                try:
-                    producer.produce(topic, key=key, value=payload, on_delivery=on_delivery)
-                    break
-                except BufferError:
-                    producer.poll(0.5)
-
-            producer.poll(0)
-            produced += 1
-            print(f"queued event {produced}: key={key!r} value={payload.decode('utf-8')}")
+            if result.valid:
+                routed["main"] += 1
+                print(
+                    f"queued valid event {seen}: topic={result.topic} "
+                    f"key={result.key!r} value={json.dumps(result.payload, separators=(',', ':'), default=str)}"
+                )
+            else:
+                routed["dlq"] += 1
+                print(
+                    f"queued invalid event {seen}: topic={result.topic} "
+                    f"key={result.key!r} validation_error={result.validation_error!r}"
+                )
 
     except KeyboardInterrupt:
         print("\nStopping producer and Mockingbird generator...", file=sys.stderr)
@@ -191,7 +413,11 @@ def produce_events(
         if remaining:
             print(f"WARNING: {remaining} message(s) were not delivered before timeout.", file=sys.stderr)
 
-    return_code = process.wait(timeout=5)
+    try:
+        return_code = process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return_code = process.wait(timeout=5)
     stderr = process.stderr.read() if process.stderr is not None else ""
 
     if return_code != 0:
@@ -202,7 +428,11 @@ def produce_events(
         )
         return 1
 
-    print(f"Finished. queued={produced} delivered={delivery['ok']} errors={delivery['errors']}")
+    print(
+        "Finished. "
+        f"seen={seen} main={routed['main']} dlq={routed['dlq']} "
+        f"delivered={delivery['ok']} errors={delivery['errors']}"
+    )
     return 1 if delivery["errors"] else 0
 
 
@@ -212,9 +442,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     return produce_events(
         bootstrap_servers=args.bootstrap_servers,
         topic=args.topic,
+        dlq_topic=args.dlq_topic,
+        schema_id=args.schema,
+        schema_source=args.schema_source,
+        registry_url=args.registry_url,
+        registry_group=args.registry_group,
+        registry_version=args.registry_version,
         template=args.template,
         eps=args.eps,
         limit=args.limit,
+        invalid_every=args.invalid_every,
         client_id=args.client_id,
     )
 

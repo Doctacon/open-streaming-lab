@@ -1,7 +1,7 @@
-Status: open
+Status: done
 Created: 2026-06-15
 Updated: 2026-06-15
-Parent: .loom/tickets/2026-06-15-next-level-streaming-platform.md
+Parent: .loom/tickets/done/2026-06-15-next-level-streaming-platform.md
 Depends-On: .loom/tickets/done/2026-06-15-baseline-closure-and-repo-hygiene.md, .loom/specs/next-level-streaming-platform.md
 
 # Add JSON Schema Validation and Dead-Letter Topic
@@ -40,10 +40,16 @@ Out of scope:
 - DLQ messages include original payload, validation error, target topic, schema identifier/version, and rejection timestamp.
 - README has copy/pasteable commands for the validation/DLQ chapter.
 
+## Current State
+
+Done. Local JSON Schema validation and DLQ routing are implemented, unit/static checks pass, and runtime smoke evidence proves one valid event reached the main topic while one intentionally invalid event reached the DLQ.
+
 ## Progress and notes
 
 - 2026-06-15: Ticket opened as the recommended first next-level implementation slice.
+- 2026-06-15: Set Status to `active` for autonomous Loom-driver execution. Baseline closure dependency is satisfied.
+- 2026-06-15: Worker implementation run timed out after applying the main schema/DLQ changes; parent inspected the diff, fixed README command coverage, ran static and runtime validation, recorded `.loom/evidence/2026-06-15-schema-validation-dlq.md`, and accepted the timed-out reviewer run as residual risk.
 
 ## Blockers
 
-- Requires baseline closure/hygiene ticket to establish a clean starting point.
+None. Independent reviewer subagent timed out, but acceptance evidence is complete and residual review risk is recorded in `.loom/evidence/2026-06-15-schema-validation-dlq.md`.

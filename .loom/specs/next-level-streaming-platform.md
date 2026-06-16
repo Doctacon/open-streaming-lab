@@ -125,4 +125,4 @@ Python producer/consumer validation path
 
 - `.loom/research/2026-06-15-next-level-streaming-roadmap.md`
 - `.loom/decisions/python-first-streaming-roadmap.md`
-- `.loom/tickets/2026-06-15-next-level-streaming-platform.md`
+- `.loom/tickets/done/2026-06-15-next-level-streaming-platform.md`

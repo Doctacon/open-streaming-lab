@@ -1,8 +1,8 @@
-Status: open
+Status: done
 Created: 2026-06-15
 Updated: 2026-06-15
-Parent: .loom/tickets/2026-06-15-next-level-streaming-platform.md
-Depends-On: .loom/tickets/2026-06-15-schema-validation-dlq.md
+Parent: .loom/tickets/done/2026-06-15-next-level-streaming-platform.md
+Depends-On: .loom/tickets/done/2026-06-15-schema-validation-dlq.md
 
 # Add Apicurio Schema Registry Chapter
 
@@ -34,10 +34,16 @@ Out of scope:
 - README chapter explains why a schema registry matters and what Apicurio replaces in a Confluent-centric architecture.
 - Evidence records commands and outputs.
 
+## Current State
+
+Done. Apicurio Registry is available in Compose, schemas can be registered/fetched through the `schema-registry` CLI, and the producer can validate with a registry-fetched schema while retaining local and disabled-schema modes.
+
 ## Progress and notes
 
 - 2026-06-15: Ticket opened as second schema milestone after local validation/DLQ.
+- 2026-06-15: Set Status to `active` for autonomous Loom-driver execution after closing `.loom/tickets/done/2026-06-15-schema-validation-dlq.md`.
+- 2026-06-15: Implemented Apicurio Registry Compose service, `schema-registry` CLI, registry-backed producer schema loading, Makefile/README docs, tests, runtime evidence, and reviewer pass. Evidence recorded in `.loom/evidence/2026-06-15-apicurio-schema-registry.md`.
 
 ## Blockers
 
-- Requires schema validation/DLQ ticket so the learner already understands schema enforcement before adding a registry.
+None.

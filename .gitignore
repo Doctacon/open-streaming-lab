@@ -22,3 +22,5 @@ npm-debug.log*
 # Logs / generated samples
 *.log
 samples/*.jsonl
+state/
+data/

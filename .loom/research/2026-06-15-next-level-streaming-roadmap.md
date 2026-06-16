@@ -61,4 +61,4 @@ Proceed with an incremental Python-first architecture: JSON Schema + DLQ first, 
 
 - `.loom/specs/next-level-streaming-platform.md`
 - `.loom/decisions/python-first-streaming-roadmap.md`
-- `.loom/tickets/2026-06-15-next-level-streaming-platform.md`
+- `.loom/tickets/done/2026-06-15-next-level-streaming-platform.md`

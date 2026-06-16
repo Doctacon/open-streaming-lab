@@ -1,8 +1,8 @@
-Status: open
+Status: done
 Created: 2026-06-15
 Updated: 2026-06-15
-Parent: .loom/tickets/2026-06-15-next-level-streaming-platform.md
-Depends-On: .loom/tickets/2026-06-15-schema-validation-dlq.md
+Parent: .loom/tickets/done/2026-06-15-next-level-streaming-platform.md
+Depends-On: .loom/tickets/done/2026-06-15-schema-validation-dlq.md
 
 # Add Python Stream Processor and Derived Topics
 
@@ -41,10 +41,16 @@ Out of scope:
 - README has copy/pasteable commands and expected outputs.
 - Evidence records validation outputs and any limitations.
 
+## Current State
+
+Done. The `kafka-process` Quix Streams processor consumes valid Web Analytics events, writes traceable `pageview_by_url` events to a derived topic, and has static plus runtime smoke evidence.
+
 ## Progress and notes
 
 - 2026-06-15: Ticket opened as processing milestone after validation/DLQ.
+- 2026-06-15: Set Status to `active` for autonomous Loom-driver execution. Chose Quix Streams per the existing roadmap decision and supporting docs.
+- 2026-06-15: Implemented `kafka-process`, derived topic admin/Makefile/README support, Quix dependency, unit tests, runtime smoke validation, and evidence in `.loom/evidence/2026-06-15-python-stream-processor.md`.
 
 ## Blockers
 
-- Requires schema validation/DLQ ticket so the processor can assume source events are contract-checked.
+None. Independent reviewer subagent timed out; residual review risk is recorded in `.loom/evidence/2026-06-15-python-stream-processor.md`.

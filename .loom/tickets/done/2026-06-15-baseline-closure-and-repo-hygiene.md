@@ -1,7 +1,7 @@
 Status: done
 Created: 2026-06-15
 Updated: 2026-06-15
-Parent: .loom/tickets/2026-06-15-next-level-streaming-platform.md
+Parent: .loom/tickets/done/2026-06-15-next-level-streaming-platform.md
 Depends-On: .loom/tickets/done/20260613-python-kafka-mockingbird-tutorial.md
 
 # Baseline Closure and Repository Hygiene
